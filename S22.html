@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width,
+      initial-scale=1.0,
+      maximum-scale=1.0,
+      user-scalable=no">
+
+<title>Star Dodger</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #050816;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  touch-action: none;
+}
+
+canvas {
+  display: block;
+  margin: auto;
+  background: radial-gradient(circle, #172554, #020617);
+}
+
+#info {
+  position: fixed;
+  top: 12px;
+  left: 0;
+  width: 100%;
+  z-index: 2;
+  font-size: 18px;
+  text-shadow: 0 0 8px #38bdf8;
+  pointer-events: none;
+}
+
+.screen {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.88);
+}
+
+.hidden {
+  display: none !important;
+}
+
+h1 {
+  color: #22d3ee;
+  text-shadow: 0 0 15px #22d3ee;
+}
+
+input {
+  width: 270px;
+  padding: 13px;
+  margin: 10px;
+  border: 2px solid #22d3ee;
+  border-radius: 8px;
+  outline: none;
+  background: #0f172a;
+  color: white;
+  font-size: 17px;
+  text-align: center;
+}
+
+button {
+  padding: 12px 24px;
+  margin: 8px;
+  border: none;
+  border-radius: 8px;
+  background: #22d3ee;
+  color: #001018;
+  font-size: 17px;
+  font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button:hover {
+  background: #67e8f9;
+}
+
+button:active {
+  transform: scale(0.94);
+}
+
+#touchControls {
+  position: fixed;
+  z-index: 10;
+  bottom: 22px;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 22px;
+  pointer-events: none;
+}
+
+#touchControls button {
+  width: 85px;
+  height: 65px;
+  padding: 0;
+  margin: 0;
+  border-radius: 18px;
+  background: rgba(34, 211, 238, 0.8);
+  color: #001018;
+  font-size: 38px;
+  box-shadow: 0 0 18px #22d3ee;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#touchControls button:active {
+  background: #67e8f9;
+  transform: scale(0.9);
+}
+
+#leaderboard {
+  width: min(92%, 500px);
+  max-height: 65vh;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  padding: 11px 14px;
+  margin: 5px 0;
+  border-radius: 7px;
+  background: #172554;
+}
+
+.rank {
+  width: 48px;
+  color: #facc15;
+  font-weight: bold;
+}
+
+.player {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.points {
+  color: #22d3ee;
+  font-weight: bold;
+}
+
+@media (min-width: 800px) {
+  #touchControls {
+    display: none;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<!-- Score Information -->
+<div id="info">
+  Player: <span id="playerDisplay">-</span>
+  &nbsp; | &nbsp;
+  Score: <span id="score">0</span>
+</div>
+
+<!-- Name Screen -->
+<div id="nameScreen" class="screen">
+  <h1>⭐ Star Dodger</h1>
+  <p>Enter your name to start</p>
+
+  <input
+    id="nameInput"
+    type="text"
+    maxlength="20"
+    placeholder="Your name"
+    autocomplete="off"
+  >
+
+  <button id="startButton" type="button">
+    Start Game
+  </button>
+</div>
+
+<!-- Game Over Screen -->
+<div id="gameOverScreen" class="screen hidden">
+  <h1>Game Over</h1>
+
+  <p id="resultText"></p>
+
+  <button id="tryAgainButton" type="button">
+    Try Again
+  </button>
+
+  <button id="leaderboardButton" type="button">
+    View Leaderboard
+  </button>
+</div>
+
+<!-- Leaderboard Screen -->
+<div id="leaderboardScreen" class="screen hidden">
+  <h1>🏆 Leaderboard</h1>
+
+  <div id="leaderboard">
+    Loading scores...
+  </div>
+
+  <button id="backButton" type="button">
+    Back
+  </button>
+</div>
+
+<!-- Game Canvas -->
+<canvas id="game"></canvas>
+
+<!-- Mobile Controls -->
+<div id="touchControls">
+  <button id="leftButton" type="button">⬅</button>
+  <button id="rightButton" type="button">➡</button>
+</div>
+
+<!-- Supabase Library -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+/* =====================================================
+   SUPABASE CONFIGURATION
+   The game works without these values.
+   Add your real values for online leaderboard support.
+===================================================== */
+
+const SUPABASE_URL = "YOUR_SUPABASE_URL";
+const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+
+let database = null;
+
+try {
+  if (
+    window.supabase &&
+    SUPABASE_URL !== "YOUR_SUPABASE_URL" &&
+    SUPABASE_ANON_KEY !== "YOUR_SUPABASE_ANON_KEY"
+  ) {
+    database = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY
+    );
+  } else {
+    console.warn("Supabase is not configured. The game will still work.");
+  }
+} catch (error) {
+  console.error("Supabase initialization error:", error);
+}
+
+/* =====================================================
+   GAME VARIABLES
+===================================================== */
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let player = null;
+let meteors = [];
+let stars = [];
+let score = 0;
+let gameRunning = false;
+let scoreSubmitted = false;
+let playerName = "";
+let keys = {};
+
+/* =====================================================
+   CANVAS SIZE
+===================================================== */
+
+function resizeCanvas() {
+  canvas.width = Math.min(window.innerWidth, 700);
+  canvas.height = window.innerHeight;
+
+  if (player) {
+    player.y = canvas.height - 115;
+
+    player.x = Math.max(
+      0,
+      Math.min(canvas.width - player.width, player.x)
+    );
+  }
+}
+
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+/* =====================================================
+   SCREEN CONTROLS
+===================================================== */
+
+document
+  .getElementById("startButton")
+  .addEventListener("click", startGame);
+
+document
+  .getElementById("tryAgainButton")
+  .addEventListener("click", tryAgain);
+
+document
+  .getElementById("leaderboardButton")
+  .addEventListener("click", showLeaderboard);
+
+document
+  .getElementById("backButton")
+  .addEventListener("click", closeLeaderboard);
+
+document
+  .getElementById("nameInput")
+  .addEventListener("keydown", function(event) {
+    if (event.key === "Enter") {
+      startGame(event);
+    }
+  });
+
+function startGame(event) {
+  if (event) {
+    event.preventDefault();
+  }
+
+  const input = document.getElementById("nameInput");
+  const enteredName = input.value.trim();
+
+  if (enteredName.length === 0) {
+    alert("Please enter your name first.");
+    input.focus();
+    return;
+  }
+
+  playerName = enteredName;
+
+  document.getElementById("playerDisplay").textContent = playerName;
+  document.getElementById("nameScreen").classList.add("hidden");
+
+  resetGame();
+}
+
+function tryAgain() {
+  document.getElementById("gameOverScreen").classList.add("hidden");
+  resetGame();
+}
+
+function resetGame() {
+  player = {
+    x: canvas.width / 2 - 22,
+    y: canvas.height - 115,
+    width: 44,
+    height: 44,
+    speed: 7
+  };
+
+  meteors = [];
+  stars = [];
+  score = 0;
+  keys = {};
+  gameRunning = true;
+  scoreSubmitted = false;
+
+  document.getElementById("score").textContent = "0";
+
+  for (let i = 0; i < 80; i++) {
+    stars.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: Math.random() * 2 + 1,
+      speed: Math.random() * 1.5 + 0.3
+    });
+  }
+}
+
+/* =====================================================
+   PC KEYBOARD CONTROLS
+===================================================== */
+
+document.addEventListener("keydown", function(event) {
+  keys[event.key] = true;
+
+  if (
+    event.key === "ArrowLeft" ||
+    event.key === "ArrowRight" ||
+    event.key === " "
+  ) {
+    event.preventDefault();
+  }
+});
+
+document.addEventListener("keyup", function(event) {
+  keys[event.key] = false;
+});
+
+/* =====================================================
+   MOBILE TOUCH CONTROLS
+===================================================== */
+
+const leftButton = document.getElementById("leftButton");
+const rightButton = document.getElementById("rightButton");
+
+function pressLeft(event) {
+  event.preventDefault();
+  keys["ArrowLeft"] = true;
+}
+
+function releaseLeft(event) {
+  event.preventDefault();
+  keys["ArrowLeft"] = false;
+}
+
+function pressRight(event) {
+  event.preventDefault();
+  keys["ArrowRight"] = true;
+}
+
+function releaseRight(event) {
+  event.preventDefault();
+  keys["ArrowRight"] = false;
+}
+
+leftButton.addEventListener("pointerdown", pressLeft);
+leftButton.addEventListener("pointerup", releaseLeft);
+leftButton.addEventListener("pointercancel", releaseLeft);
+leftButton.addEventListener("pointerleave", releaseLeft);
+
+rightButton.addEventListener("pointerdown", pressRight);
+rightButton.addEventListener("pointerup", releaseRight);
+rightButton.addEventListener("pointercancel", releaseRight);
+rightButton.addEventListener("pointerleave", releaseRight);
+
+/* =====================================================
+   GAME OBJECTS
+===================================================== */
+
+function spawnMeteor() {
+  meteors.push({
+    x: Math.random() * (canvas.width - 40),
+    y: -50,
+    size: Math.random() * 22 + 24,
+    speed: Math.random() * 3 + 3 + score / 400
+  });
+}
+
+function drawPlayer() {
+  ctx.save();
+
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = "#22d3ee";
+  ctx.fillStyle = "#22d3ee";
+
+  ctx.beginPath();
+
+  ctx.moveTo(
+    player.x + player.width / 2,
+    player.y
+  );
+
+  ctx.lineTo(
+    player.x,
+    player.y + player.height
+  );
+
+  ctx.lineTo(
+    player.x + player.width / 2,
+    player.y + player.height - 10
+  );
+
+  ctx.lineTo(
+    player.x + player.width,
+    player.y + player.height
+  );
+
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawMeteor(meteor) {
+  ctx.save();
+
+  ctx.shadowBlur = 15;
+  ctx.shadowColor = "#f97316";
+  ctx.fillStyle = "#f97316";
+
+  ctx.beginPath();
+
+  ctx.arc(
+    meteor.x + meteor.size / 2,
+    meteor.y + meteor.size / 2,
+    meteor.size / 2,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.fill();
+
+  ctx.fillStyle = "#7c2d12";
+
+  ctx.beginPath();
+
+  ctx.arc(
+    meteor.x + meteor.size * 0.35,
+    meteor.y + meteor.size * 0.35,
+    meteor.size * 0.12,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.arc(
+    meteor.x + meteor.size * 0.7,
+    meteor.y + meteor.size * 0.6,
+    meteor.size * 0.1,
+    0,
+    Math.PI * 2
+  );
+
+  ctx.fill();
+  ctx.restore();
+}
+
+function collision(a, b) {
+  return (
+    a.x < b.x + b.size &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.size &&
+    a.y + a.height > b.y
+  );
+}
+
+/* =====================================================
+   GAME UPDATE
+===================================================== */
+
+function update() {
+  if (!gameRunning) {
+    return;
+  }
+
+  if (
+    keys["ArrowLeft"] ||
+    keys["a"] ||
+    keys["A"]
+  ) {
+    player.x -= player.speed;
+  }
+
+  if (
+    keys["ArrowRight"] ||
+    keys["d"] ||
+    keys["D"]
+  ) {
+    player.x += player.speed;
+  }
+
+  player.x = Math.max(
+    0,
+    Math.min(canvas.width - player.width, player.x)
+  );
+
+  stars.forEach(function(star) {
+    star.y += star.speed;
+
+    if (star.y > canvas.height) {
+      star.y = 0;
+      star.x = Math.random() * canvas.width;
+    }
+  });
+
+  if (Math.random() < 0.025 + score / 30000) {
+    spawnMeteor();
+  }
+
+  meteors.forEach(function(meteor) {
+    meteor.y += meteor.speed;
+  });
+
+  for (const meteor of meteors) {
+    if (collision(player, meteor)) {
+      endGame();
+      return;
+    }
+  }
+
+  meteors = meteors.filter(function(meteor) {
+    if (meteor.y > canvas.height) {
+      score++;
+      document.getElementById("score").textContent = score;
+      return false;
+    }
+
+    return true;
+  });
+}
+
+/* =====================================================
+   GAME DRAWING
+===================================================== */
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "white";
+
+  stars.forEach(function(star) {
+    ctx.globalAlpha = 0.7;
+    ctx.fillRect(
+      star.x,
+      star.y,
+      star.size,
+      star.size
+    );
+  });
+
+  ctx.globalAlpha = 1;
+
+  if (gameRunning) {
+    drawPlayer();
+    meteors.forEach(drawMeteor);
+  }
+}
+
+/* =====================================================
+   GAME LOOP
+===================================================== */
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+/* =====================================================
+   GAME OVER
+===================================================== */
+
+function endGame() {
+  if (!gameRunning) {
+    return;
+  }
+
+  gameRunning = false;
+
+  document.getElementById("resultText").textContent =
+    playerName + ", your final score is " + score + ".";
+
+  document
+    .getElementById("gameOverScreen")
+    .classList.remove("hidden");
+
+  submitScore();
+}
+
+/* =====================================================
+   ONLINE SCORE SUBMISSION
+===================================================== */
+
+async function submitScore() {
+  if (scoreSubmitted) {
+    return;
+  }
+
+  scoreSubmitted = true;
+
+  if (!database) {
+    console.warn(
+      "Score was not saved because Supabase is not configured."
+    );
+    return;
+  }
+
+  const result = await database
+    .from("leaderboard")
+    .insert([
+      {
+        player_name: playerName,
+        score: score
+      }
+    ]);
+
+  if (result.error) {
+    console.error(
+      "Could not submit score:",
+      result.error.message
+    );
+  }
+}
+
+/* =====================================================
+   LEADERBOARD
+===================================================== */
+
+async function showLeaderboard() {
+  document
+    .getElementById("gameOverScreen")
+    .classList.add("hidden");
+
+  document
+    .getElementById("leaderboardScreen")
+    .classList.remove("hidden");
+
+  const leaderboardBox =
+    document.getElementById("leaderboard");
+
+  if (!database) {
+    leaderboardBox.innerHTML =
+      "Leaderboard is unavailable until Supabase is configured.";
+    return;
+  }
+
+  leaderboardBox.innerHTML = "Loading leaderboard...";
+
+  const result = await database
+    .from("leaderboard")
+    .select("player_name, score, created_at")
+    .order("score", { ascending: false })
+    .limit(100);
+
+  if (result.error) {
+    leaderboardBox.innerHTML =
+      "Unable to load leaderboard.";
+    console.error(result.error.message);
+    return;
+  }
+
+  if (!result.data || result.data.length === 0) {
+    leaderboardBox.innerHTML = "No scores yet.";
+    return;
+  }
+
+  leaderboardBox.innerHTML = result.data
+    .map(function(entry, index) {
+      return `
+        <div class="score-row">
+          <span class="rank">#${index + 1}</span>
+          <span class="player">
+            ${escapeHTML(entry.player_name)}
+          </span>
+          <span class="points">
+            ${entry.score}
+          </span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function closeLeaderboard() {
+  document
+    .getElementById("leaderboardScreen")
+    .classList.add("hidden");
+
+  document
+    .getElementById("gameOverScreen")
+    .classList.remove("hidden");
+}
+
+function escapeHTML(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+/* Start the game animation */
+gameLoop();
+</script>
+
+</body>
+</html>
